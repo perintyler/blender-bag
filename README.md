@@ -59,6 +59,8 @@ land in `~/.barry/blender/<name>/`.
 
 - **`blender-animation`** — keyframes, easing, looping motion, cameras,
   materials, engine selection
+- **`blender-node-graphs`** — shader and geometry node trees from Python:
+  verified type strings, socket names, scattering, and the 5.2 compositor rework
 - **`blender-physics`** — rigid bodies, cloth, particles, and the headless
   baking trap (a simulation does not advance unless you step the frames)
 - **`blender-scripting`** — CLI flag ordering, engine identifiers, Blender 5.x

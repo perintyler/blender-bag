@@ -1,0 +1,199 @@
+---
+name: blender-node-graphs
+description: Build Blender shader and geometry node trees from Python — node type strings, socket wiring, procedural materials, and scattering. Use when a material needs more than a flat Principled BSDF, or when geometry should be generated procedurally.
+context: current
+allowed-tools: Bash, Read, Write
+---
+
+# Node Graphs from Python
+
+Two node systems, one construction pattern: create nodes with
+`nodes.new("<TypeString>")`, then wire them with `links.new(output, input)`.
+
+The part that goes wrong is **names** — the exact type string and the exact
+socket name. Both changed across Blender versions. Everything below is verified
+against Blender 5.2.
+
+When unsure, ask Blender rather than guessing:
+
+```python
+print([s.name for s in node.inputs])              # socket names
+print([t.identifier for t in bpy.types.ShaderNode.__subclasses__()])
+```
+
+## Shader nodes
+
+```python
+mat = bpy.data.materials.new("Rock")
+mat.use_nodes = True
+nt = mat.node_tree
+bsdf = nt.nodes["Principled BSDF"]
+
+noise = nt.nodes.new("ShaderNodeTexNoise")
+noise.inputs["Scale"].default_value = 12.0
+noise.inputs["Detail"].default_value = 6.0
+
+ramp = nt.nodes.new("ShaderNodeValToRGB")          # "Color Ramp" in the UI
+ramp.color_ramp.elements[0].color = (0.02, 0.02, 0.03, 1)
+ramp.color_ramp.elements[1].color = (0.35, 0.33, 0.30, 1)
+
+nt.links.new(noise.outputs["Fac"], ramp.inputs["Factor"])
+nt.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+obj.data.materials.append(mat)
+```
+
+Verified type strings: `ShaderNodeTexNoise`, `ShaderNodeTexCoord`,
+`ShaderNodeMapping`, `ShaderNodeValToRGB`, `ShaderNodeEmission`,
+`ShaderNodeMixShader`, `ShaderNodeBsdfGlass`, `ShaderNodeBump`.
+
+Note the UI name and the type string often differ — "Color Ramp" is
+`ShaderNodeValToRGB`, "Noise Texture" is `ShaderNodeTexNoise`.
+
+### Principled BSDF sockets (5.2)
+
+32 inputs. The ones you'll actually use: `Base Color`, `Metallic`, `Roughness`,
+`IOR`, `Alpha`, `Normal`, `Emission Color`, `Emission Strength`,
+`Transmission Weight`, `Coat Weight`, `Subsurface Weight`.
+
+**`Emission` alone does not exist in 4.x+** — it is `Emission Color`. Code
+written for 3.x fails here with a `KeyError`. Same for `Subsurface` →
+`Subsurface Weight` and `Transmission` → `Transmission Weight`.
+
+Index sockets by name, never by number: indices shift between versions.
+
+### Glowing material
+
+```python
+bsdf.inputs["Emission Color"].default_value = (0.1, 0.6, 1.0, 1)
+bsdf.inputs["Emission Strength"].default_value = 5.0
+```
+
+Emission alone gives a bright surface, not a *glow* — light does not bleed past
+the object's silhouette.
+
+**`scene.eevee.use_bloom` no longer exists on 5.2.** EEVEE Next removed it, so
+code carried over from 4.1 or earlier raises `AttributeError`. Verified: there
+is no `bloom` attribute on `scene.eevee` at all.
+
+Compositing is the usual place to add glow, but **the 5.2 compositor API is not
+the one most examples show** and it is easy to end up with black frames:
+
+- `scene.node_tree` no longer exists — it is `scene.compositing_node_group`,
+  and `scene.use_nodes = True` does **not** populate it (stays `None`).
+- `CompositorNodeComposite` is gone; a compositing group uses
+  `NodeGroupInput` / `NodeGroupOutput` instead.
+- `CompositorNodeGlare` settings moved from properties to **input sockets** —
+  `glare.glare_type` raises, `glare.inputs["Threshold"]` is correct.
+
+A mis-wired compositing group renders **fully black with no error**, which is
+indistinguishable from a lighting mistake. Verify by rendering one frame with
+`scene.compositing_node_group = None` first: if that frame looks right, the
+compositor is the problem.
+
+Given that, prefer getting the look in-scene (emission strength, light
+placement, an emissive plane just out of frame) unless you specifically need a
+post effect, and check any compositing snippet against
+`print([s.name for s in node.inputs])` before trusting it.
+
+### Procedural placement
+
+Textures need coordinates. Without them, a noise texture is evaluated in a
+default space and often looks flat or smeared:
+
+```python
+coord = nt.nodes.new("ShaderNodeTexCoord")
+mapping = nt.nodes.new("ShaderNodeMapping")
+mapping.inputs["Scale"].default_value = (3, 3, 3)
+nt.links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+nt.links.new(mapping.outputs["Vector"], noise.inputs["Vector"])
+```
+
+`Object` coordinates move with the object; `Generated` stick to its bounding
+box; `UV` need an unwrap.
+
+## Geometry nodes
+
+A geometry node tree is a modifier, so it needs group input/output sockets and
+an interface — this is the part that silently produces nothing when skipped.
+
+```python
+ng = bpy.data.node_groups.new("Scatter", 'GeometryNodeTree')
+
+# Declare the modifier's in/out sockets (Blender 4.x+ interface API).
+ng.interface.new_socket("Geometry", in_out='INPUT',  socket_type='NodeSocketGeometry')
+ng.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+
+gin  = ng.nodes.new("NodeGroupInput")
+gout = ng.nodes.new("NodeGroupOutput")
+
+distribute = ng.nodes.new("GeometryNodeDistributePointsOnFaces")
+distribute.inputs["Density"].default_value = 25.0
+
+instance = ng.nodes.new("GeometryNodeInstanceOnPoints")
+instance.inputs["Scale"].default_value = (0.2, 0.2, 0.2)
+
+join = ng.nodes.new("GeometryNodeJoinGeometry")
+
+ng.links.new(gin.outputs[0], distribute.inputs["Mesh"])
+ng.links.new(distribute.outputs["Points"], instance.inputs["Points"])
+ng.links.new(instance.outputs["Instances"], join.inputs["Geometry"])
+ng.links.new(gin.outputs[0], join.inputs["Geometry"])
+ng.links.new(join.outputs["Geometry"], gout.inputs[0])
+
+mod = ground.modifiers.new("Scatter", 'NODES')
+mod.node_group = ng
+```
+
+Verified type strings: `GeometryNodeMeshCube`,
+`GeometryNodeDistributePointsOnFaces`, `GeometryNodeInstanceOnPoints`,
+`GeometryNodeSetPosition`, `GeometryNodeJoinGeometry`,
+`GeometryNodeInputPosition`, `FunctionNodeRandomValue`.
+
+Three prefixes, and picking the wrong one is the most common error:
+
+- `GeometryNode*` — geometry operations
+- `FunctionNode*` — math and utility (random values, comparisons)
+- `ShaderNode*` — **also valid inside geometry trees** for math and textures
+
+### Instancing real objects
+
+`GeometryNodeInstanceOnPoints` scatters whatever geometry you feed its
+`Instance` socket. Supply it from an object:
+
+```python
+obj_info = ng.nodes.new("GeometryNodeObjectInfo")
+obj_info.inputs["Object"].default_value = bpy.data.objects["Rock"]
+ng.links.new(obj_info.outputs["Geometry"], instance.inputs["Instance"])
+```
+
+Instances are cheap — thousands are fine. Call
+`GeometryNodeRealizeInstances` only when a later node must edit the geometry
+itself, since realizing collapses that saving.
+
+## Animating node values
+
+Node sockets keyframe like any property, but on the **node tree**, not the
+object:
+
+```python
+noise.inputs["Scale"].keyframe_insert("default_value", frame=1)
+noise.inputs["Scale"].default_value = 30.0
+noise.inputs["Scale"].keyframe_insert("default_value", frame=48)
+```
+
+For an endlessly drifting texture, animate a Mapping node's `Location` rather
+than the texture itself — it moves the pattern without changing its character.
+
+## Debugging
+
+A node tree that renders as flat grey almost always means an unconnected link.
+Nothing errors — the socket just keeps its default. Verify the graph:
+
+```python
+for l in nt.links:
+    print(l.from_node.name, l.from_socket.name, "->", l.to_node.name, l.to_socket.name)
+```
+
+Check `nodes.new()` return values are not `None`, and confirm socket names
+exist before assigning — a typo'd name raises `KeyError`, which is the *good*
+case; a wrong-but-valid name silently sets the wrong thing.

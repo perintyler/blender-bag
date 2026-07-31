@@ -258,6 +258,39 @@ The `--with "mcp[cli]<2"` pin is required. Upstream declares an unbounded
 `mcp.server.fastmcp`, so an unpinned install starts and immediately dies with
 `ModuleNotFoundError`. Without the pin this step fails.
 
+### 13. A real session actually uses the tools (Online)
+
+```bash
+barry session run --traits blender --max-turns 14 \
+  -p "Make a short animation: three colored spheres bouncing on a floor, with the camera slowly orbiting. Render it and tell me the video path."
+```
+
+**Expected:** the returned path is under `~/.barry/blender/<slug>/`, proving
+`blender_render` was called. Then confirm the frames are not blank:
+
+```bash
+ffmpeg -y -v error -i <path> -vf "select='eq(n\,8)+eq(n\,36)',tile=2x1" \
+  -frames:v 1 /tmp/check.png
+```
+
+Open `/tmp/check.png` and look at it. **This step is the whole point** — every
+other check in this file passed while the pack was silently broken end to end.
+
+A path in `/tmp` (or anywhere outside the render root) means the agent never
+saw the tools and hand-rolled Bash instead. That failure mode is invisible from
+the transcript: the agent reports success, and the video is a uniform grey
+rectangle. Check the tools are visible first:
+
+```bash
+barry session run --traits blender --max-turns 3 \
+  -p "List every tool available to you starting with 'blender'. If none, say NONE."
+```
+
+**Expected:** five `mcp__barry__blender_*` tools. `NONE` means trait→tool
+resolution is broken — check that the `traits` row's `namespaces` is
+`["blender"]` (not `["blender-live"]`), that a session row was created with the
+trait, and that `BARRY_SECRET` reaches the MCP connection.
+
 ## Not covered
 
 The `blender-live` tools are not exercised end to end. The server launches and

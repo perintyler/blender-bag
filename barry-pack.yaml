@@ -63,7 +63,7 @@ traits:
     description: "Blender headless animation authoring and rendering to video"
     access: readwrite
     namespaces: [blender]
-    skills: [blender-animation, blender-physics, blender-scripting]
+    skills: [blender-animation, blender-node-graphs, blender-physics, blender-scripting]
   blender-read:
     description: "Blender inspection — install status and .blend scene summaries"
     access: read

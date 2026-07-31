@@ -1,0 +1,128 @@
+---
+name: blender-physics
+description: Simulate rigid bodies, cloth, soft bodies and particles in Blender and render them headlessly. Use when an animation needs falling, colliding, draping, or scattering motion instead of hand-authored keyframes.
+context: current
+allowed-tools: Bash, Read, Write
+---
+
+# Blender Physics (Headless)
+
+Physics gives you motion you would never keyframe by hand — objects falling,
+stacking, shattering, cloth draping. Set up the simulation in `sceneCode` and
+render with `blender_render` as usual.
+
+## The one thing that will bite you
+
+**A simulation does not advance unless something steps the frames.** In the GUI
+you scrub the timeline and the sim bakes as you go. Headless, nothing scrubs, so
+the render captures every frame in its *initial* state — objects hang frozen in
+mid-air and the video looks static, with no error to explain why.
+
+Step the scene explicitly before rendering:
+
+```python
+scene = bpy.context.scene
+scene.frame_start, scene.frame_end = 1, 60
+scene.rigidbody_world.point_cache.frame_start = 1
+scene.rigidbody_world.point_cache.frame_end = 60
+
+for f in range(scene.frame_start, scene.frame_end + 1):
+    scene.frame_set(f)      # populates the point cache
+```
+
+Always set the point cache range to match the frame range. If the cache ends
+before the render does, motion stops dead partway through.
+
+## Rigid bodies
+
+```python
+# Ground — passive: collides, never moves.
+bpy.ops.mesh.primitive_plane_add(size=12)
+bpy.ops.rigidbody.object_add(type='PASSIVE')
+bpy.context.active_object.rigid_body.friction = 0.6
+
+# Falling objects — active: driven by the solver.
+for i in range(5):
+    bpy.ops.mesh.primitive_cube_add(size=0.8, location=(i * 0.35, 0, 3 + i * 1.2))
+    cube = bpy.context.active_object
+    bpy.ops.rigidbody.object_add(type='ACTIVE')
+    cube.rigid_body.mass = 1.0
+    cube.rigid_body.restitution = 0.4      # bounciness, 0–1
+    cube.rigid_body.collision_shape = 'CONVEX_HULL'
+```
+
+`bpy.ops.rigidbody.object_add()` acts on the **active** object, so add the
+object first and configure `rigid_body` immediately after.
+
+Collision shapes, cheapest to most expensive: `BOX`, `SPHERE`, `CAPSULE`,
+`CYLINDER`, `CONE`, `CONVEX_HULL`, `MESH`. Use `MESH` only for static geometry
+with real concavity (a bowl, a funnel) — it is slow and unstable on fast movers.
+
+Offset stacked objects slightly. Perfectly aligned, perfectly touching bodies
+start interpenetrating and explode apart on the first frame.
+
+If objects jitter or tunnel through the floor, raise the solver quality:
+
+```python
+scene.rigidbody_world.substeps_per_frame = 10
+scene.rigidbody_world.solver_iterations = 10
+```
+
+### Animated → simulated handoff
+
+Keyframe an object, then let physics take over, by keyframing `kinematic`:
+
+```python
+body.rigid_body.kinematic = True
+body.rigid_body.keyframe_insert("kinematic", frame=1)
+body.rigid_body.kinematic = False        # solver takes control here
+body.rigid_body.keyframe_insert("kinematic", frame=20)
+```
+
+## Cloth and soft body
+
+Cloth needs subdivided geometry — a 2-triangle plane cannot fold.
+
+```python
+bpy.ops.mesh.primitive_grid_add(x_subdivisions=40, y_subdivisions=40, size=4)
+cloth = bpy.context.active_object
+mod = cloth.modifiers.new("Cloth", 'CLOTH')
+mod.settings.quality = 8
+mod.point_cache.frame_end = 60
+
+# Anything it should drape over needs a collision modifier.
+collider.modifiers.new("Collision", 'COLLISION')
+```
+
+Pin vertices (a flag, a hanging cloth) with a vertex group assigned to
+`mod.settings.vertex_group_mass`.
+
+## Particles
+
+```python
+emitter.modifiers.new("Particles", 'PARTICLE_SYSTEM')
+psys = emitter.particle_systems[0]
+psys.settings.count = 500
+psys.settings.frame_start, psys.settings.frame_end = 1, 20
+psys.settings.lifetime = 60
+psys.settings.physics_type = 'NEWTON'
+
+# Render actual geometry instead of halos.
+psys.settings.render_type = 'OBJECT'
+psys.settings.instance_object = bpy.data.objects["Spark"]
+psys.settings.particle_size = 0.05
+```
+
+Force fields (`bpy.ops.object.effector_add(type='WIND'|'TURBULENCE'|'FORCE')`)
+affect particles, cloth, and soft bodies — not rigid bodies.
+
+## Practical notes
+
+- Simulations are **not** reproducible across substep/solver changes. Once a
+  result looks right, do not retune those settings.
+- Stepping frames costs real time on top of rendering. Prototype at low
+  resolution and few samples; the sim cost is unchanged but the render is cheap.
+- Give the sim a few frames of runway before the camera needs to see it —
+  frame 1 is usually the least interesting moment.
+- Fluid (Mantaflow) needs an explicit domain bake and is far slower than the
+  rest. Reach for it only when nothing else will do.

@@ -1,0 +1,75 @@
+manifestVersion: 1
+name: blender
+description: Blender 3D — headless animation authoring, rendering to video, and live scene inspection
+
+instructions: |
+  Blender work splits into two modes that do NOT overlap.
+
+  HEADLESS (blender namespace, the default): author animations as bpy Python and
+  render them without a GUI. Use blender_render for anything that produces frames
+  or video — it runs `blender -b -P script.py -a` and encodes to mp4 with ffmpeg.
+  This is the only path that works in a background session.
+
+  LIVE (blender-live trait, opt-in): the official Blender MCP server drives an
+  already-open Blender desktop app over a TCP socket. It offers scene inspection,
+  screenshots, and — most usefully — searchable bpy API docs for Blender 5.x.
+  It has NO animation or video tools. It is unavailable unless Blender is running
+  with the Blender Lab MCP add-on installed and enabled.
+
+  When asked to "generate an animation", always use the headless tools. Reach for
+  the live server only to inspect a scene the user already has open, or to look up
+  exact bpy API signatures.
+
+  After rendering, hand the returned videoPath to the media pack's view_video to
+  show the result. Do not build separate playback.
+
+mcp-servers:
+  # Official Blender Foundation MCP server (Blender Lab), GPL-3.0-or-later.
+  # NOT the PyPI `blender-mcp` package — that name belongs to the unrelated
+  # community server (ahujasid, MIT). This one is git-install only, so it is
+  # pinned to a tag rather than a floating branch.
+  #
+  # Requires: Blender 5.1+ running in the GUI with the Lab MCP add-on enabled
+  # (extensions repo https://lab.blender.org/). Without that, every tool here
+  # fails to connect — which is why this server lives behind its own trait
+  # instead of the default one.
+  #
+  # `--with "mcp[cli]<2"` is load-bearing: the server declares an unbounded
+  # `mcp[cli]>=1.2.0`, which now resolves to mcp 2.x. That release removed
+  # `mcp.server.fastmcp`, so an unpinned install starts and immediately dies
+  # with ModuleNotFoundError. Drop the pin once upstream supports mcp 2.x.
+  blender-live:
+    command: uvx
+    args:
+      - "--from"
+      - "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp"
+      - "--with"
+      - "mcp[cli]<2"
+      - "blender-mcp"
+
+tools:
+  entry: tools.ts
+
+dependencies:
+  - name: blender
+    install: brew install --cask blender
+    reason: renders every animation; the cask puts a `blender` wrapper on PATH
+  - name: ffmpeg
+    install: brew install ffmpeg
+    reason: encodes rendered PNG sequences into mp4 (Blender's own muxer is not compiled into the macOS cask build)
+
+traits:
+  blender:
+    description: "Blender headless animation authoring and rendering to video"
+    access: readwrite
+    namespaces: [blender]
+    skills: [blender-animation, blender-physics, blender-scripting]
+  blender-read:
+    description: "Blender inspection — install status and .blend scene summaries"
+    access: read
+    namespaces: [blender]
+    skills: [blender-scripting]
+  blender-live:
+    description: "Interactive Blender — inspect a running desktop session and search bpy API docs. Requires Blender open with the Lab MCP add-on."
+    access: readwrite
+    namespaces: [blender-live]

@@ -20,7 +20,7 @@ instructions: |
   the live server only to inspect a scene the user already has open, or to look up
   exact bpy API signatures.
 
-  After rendering, hand the returned videoPath to the media pack's view_video to
+  After rendering, hand the returned videoPath to the media block's view_video to
   show the result. Do not build separate playback.
 
 mcp-servers:

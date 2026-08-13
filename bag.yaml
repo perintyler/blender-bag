@@ -1,4 +1,3 @@
-manifestVersion: 1
 name: blender
 description: Blender 3D — headless animation authoring, rendering to video, and live scene inspection
 
@@ -20,7 +19,7 @@ instructions: |
   the live server only to inspect a scene the user already has open, or to look up
   exact bpy API signatures.
 
-  After rendering, hand the returned videoPath to the media block's view_video to
+  After rendering, hand the returned videoPath to the media bag's view_video to
   show the result. Do not build separate playback.
 
 mcp-servers:
@@ -46,6 +45,10 @@ mcp-servers:
       - "--with"
       - "mcp[cli]<2"
       - "blender-mcp"
+    # Attaches to a running Blender GUI, so it holds state the same way the
+    # browser bags do. It is also near-zero use: connecting it eagerly kept a
+    # uvx process resident for the life of the MCP server for nothing.
+    session-scoped: true
 
 tools:
   entry: tools.ts

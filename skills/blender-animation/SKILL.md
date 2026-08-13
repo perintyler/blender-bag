@@ -32,9 +32,9 @@ cube.keyframe_insert("location", frame=24)
 ```
 
 Common `data_path` values: `location`, `rotation_euler`, `scale`,
-`hide_viewport`/`hide_render`, and on data blocks
+`hide_viewport`/`hide_render`, and on data bags
 `data.energy` (lights), `data.lens` (cameras). Material and modifier values are
-keyframed on their own datablock, e.g. `mat.node_tree.nodes["Emission"].inputs[1].keyframe_insert("default_value", frame=10)`.
+keyframed on their own databag, e.g. `mat.node_tree.nodes["Emission"].inputs[1].keyframe_insert("default_value", frame=10)`.
 
 Use `index=` to key a single axis: `obj.keyframe_insert("location", frame=1, index=2)` keys Z only.
 

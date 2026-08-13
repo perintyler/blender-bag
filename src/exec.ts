@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// No TS parameter properties here — the MCP server imports pack tools under
+// No TS parameter properties here — the MCP server imports bag tools under
 // Node's strip-only type stripping, which can't transform that syntax.
 export class BlenderError extends Error {
   readonly exitCode: number | null;

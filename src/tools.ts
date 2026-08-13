@@ -76,7 +76,7 @@ export const blenderRender = defineTool({
   access: "write",
   name: "blender_render",
   description:
-    "Render an animation headlessly from bpy Python and encode it to mp4. Write only scene-building code (geometry, materials, keyframes) — the camera, lighting, frame range, output settings and video encoding are handled for you. Returns the mp4 path; pass it to the media pack's view_video to watch it.",
+    "Render an animation headlessly from bpy Python and encode it to mp4. Write only scene-building code (geometry, materials, keyframes) — the camera, lighting, frame range, output settings and video encoding are handled for you. Returns the mp4 path; pass it to the media bag's view_video to watch it.",
   schema: {
     name: z.string().describe("Short name for this animation; used as the output directory name"),
     sceneCode: z
@@ -208,7 +208,7 @@ export const blenderRender = defineTool({
       alphaNote: wantsAlpha
         ? `The mp4 has no alpha (h264 flattens it to black). Composite from the RGBA PNGs in ${framesDir}.`
         : undefined,
-      nextStep: `Show it with the media pack: view_video ${videoPath}`,
+      nextStep: `Show it with the media bag: view_video ${videoPath}`,
     };
   },
 });
@@ -305,7 +305,7 @@ export const blenderEncodeFrames = defineTool({
       videoPath: out,
       frames: frames.length,
       durationSeconds: Number((frames.length / rate).toFixed(2)),
-      nextStep: `Show it with the media pack: view_video ${out}`,
+      nextStep: `Show it with the media bag: view_video ${out}`,
     };
   },
 });

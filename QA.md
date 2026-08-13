@@ -1,7 +1,7 @@
 <!-- tools: Bash,Read -->
-# QA: blender pack
+# QA: blender bag
 
-Blender Barry pack — headless animation authoring and rendering to mp4 as
+Blender Barry bag — headless animation authoring and rendering to mp4 as
 in-process tools, plus the official Blender Foundation MCP server (opt-in,
 GUI-only) and two skills.
 
@@ -169,7 +169,7 @@ deliverable and is deliberately retained.
 ### 9. Manifest parses and dependencies resolve
 
 ```bash
-barry pack show blender
+barry bag show blender
 ```
 
 **Expected:** both dependencies marked ✓, skills dir listed, and exactly three
@@ -178,11 +178,11 @@ traits — `blender`, `blender-read`, `blender-live` — with no duplicates.
 > Duplicate `blender`/`blender-read` rows mean `getAllTraits` regressed: a
 > manifest trait that reuses an auto-trait name must override it, not append.
 
-### 10. Loads through Barry's pack loader (production path)
+### 10. Loads through Barry's bag loader (production path)
 
 ```bash
 cd ~/repos/barry && cat > /tmp/qa-load.mts <<'EOF'
-import { ensurePacksBuilt } from "/Users/tyler/repos/barry/packages/packs/src/build.js";
+import { ensurePacksBuilt } from "/Users/tyler/repos/barry/packages/bags/src/build.js";
 const r = await ensurePacksBuilt();
 console.log(JSON.stringify(r.find((x: any) => x.name === "blender")));
 EOF
@@ -190,7 +190,7 @@ npx tsx /tmp/qa-load.mts 2>&1 | grep -v DEP0205; rm -f /tmp/qa-load.mts
 ```
 
 **Expected:** `{"name":"blender","ok":true,...}`. The MCP server loads the built
-bundle, not the TypeScript source, so a pack that compiles can still fail here.
+bundle, not the TypeScript source, so a bag that compiles can still fail here.
 
 ### 11. Live MCP handshake (Online — SKIP if the server is not running)
 
@@ -216,7 +216,7 @@ curl -s -X POST http://localhost:4901/mcp -H "Content-Type: application/json" \
 Take `BARRY_SECRET` from the running process — the value under that key in
 `com.barry.mcp.plist` is not the bearer token and returns 401.
 
-After changing pack tools: rebuild the bundle (step 10) **and**
+After changing bag tools: rebuild the bundle (step 10) **and**
 `barry service restart mcp`, or sessions keep the stale bundle.
 
 ## Cleanup
@@ -274,7 +274,7 @@ ffmpeg -y -v error -i <path> -vf "select='eq(n\,8)+eq(n\,36)',tile=2x1" \
 ```
 
 Open `/tmp/check.png` and look at it. **This step is the whole point** — every
-other check in this file passed while the pack was silently broken end to end.
+other check in this file passed while the bag was silently broken end to end.
 
 A path in `/tmp` (or anywhere outside the render root) means the agent never
 saw the tools and hand-rolled Bash instead. That failure mode is invisible from

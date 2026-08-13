@@ -1,4 +1,4 @@
-# Blender (Barry Pack)
+# Blender (Barry bag)
 
 Headless 3D animation authoring, rendering to video, and live scene inspection via Blender.
 

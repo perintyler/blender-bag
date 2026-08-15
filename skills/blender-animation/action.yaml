@@ -1,0 +1,164 @@
+version: 1
+name: blender-animation
+description: Author 3D animations in Blender with bpy — keyframes, easing, cameras, materials, and motion patterns. Use when asked to generate, create, or render an animation, 3D scene, or motion graphic with Blender.
+prompt: |-
+  # Blender Animation
+
+  Generate animations by writing scene-building `bpy` Python and passing it to
+  `blender_render`. That tool owns the camera, lighting, frame range, output
+  settings, and mp4 encoding — your code only creates objects and keyframes.
+
+  ## The loop
+
+  1. Write `sceneCode` that builds geometry and inserts keyframes.
+  2. Call `blender_render` with a name and frame range.
+  3. Show the result with the media pack's `view_video`.
+
+  Start at low resolution and few samples while iterating; raise them for the
+  final pass. A 48-frame EEVEE render at 960x540 takes a few seconds.
+
+  ## Keyframes
+
+  Set a property, then keyframe it at a frame. Repeat at a later frame:
+
+  ```python
+  cube.location = (0, 0, 0)
+  cube.keyframe_insert("location", frame=1)
+  cube.location = (0, 0, 3)
+  cube.keyframe_insert("location", frame=24)
+  ```
+
+  Common `data_path` values: `location`, `rotation_euler`, `scale`,
+  `hide_viewport`/`hide_render`, and on data bags
+  `data.energy` (lights), `data.lens` (cameras). Material and modifier values are
+  keyframed on their own databag, e.g. `mat.node_tree.nodes["Emission"].inputs[1].keyframe_insert("default_value", frame=10)`.
+
+  Use `index=` to key a single axis: `obj.keyframe_insert("location", frame=1, index=2)` keys Z only.
+
+  ## Easing
+
+  Blender defaults to Bezier interpolation, which already eases in and out. To
+  change it, walk the object's F-curves. **Blender 4.4+ removed `action.fcurves`**
+  — curves now live under slotted channelbags, so use this helper:
+
+  ```python
+  def fcurves_of(obj):
+      anim = obj.animation_data
+      if not anim or not anim.action:
+          return []
+      action = anim.action
+      if hasattr(action, "fcurves"):          # Blender <= 4.3
+          return list(action.fcurves)
+      curves = []                              # Blender 4.4+
+      for layer in action.layers:
+          for strip in layer.strips:
+              bag = strip.channelbag(anim.action_slot)
+              if bag:
+                  curves.extend(bag.fcurves)
+      return curves
+
+  for fc in fcurves_of(obj):
+      for kp in fc.keyframe_points:
+          kp.interpolation = 'BEZIER'   # or 'LINEAR', 'CONSTANT'
+          kp.easing = 'EASE_IN_OUT'
+  ```
+
+  For bouncy or elastic motion set `kp.interpolation` to `'BOUNCE'`, `'ELASTIC'`,
+  or `'BACK'`. Constant rotation (a turntable) should use `'LINEAR'`, otherwise
+  each revolution visibly slows at its ends.
+
+  ## Looping motion
+
+  For a seamless loop the last frame must match the first. Render frames `1..N`
+  where frame `N+1` would equal frame `1` — so key the end state at `N+1` and set
+  `frameEnd` to `N`:
+
+  ```python
+  obj.rotation_euler = (0, 0, 0)
+  obj.keyframe_insert("rotation_euler", frame=1)
+  obj.rotation_euler = (0, 0, math.radians(360))
+  obj.keyframe_insert("rotation_euler", frame=49)   # rendered range ends at 48
+  ```
+
+  ## Cameras
+
+  `blender_render` adds a camera if you don't, but framing your own is usually
+  better. A `look_at(obj, target)` helper is in scope:
+
+  ```python
+  bpy.ops.object.camera_add(location=(8, -8, 5))
+  cam = bpy.context.active_object
+  look_at(cam, (0, 0, 1))
+  bpy.context.scene.camera = cam
+  ```
+
+  Animate the camera exactly like any other object. For an orbit, parent it to an
+  empty and rotate the empty:
+
+  ```python
+  bpy.ops.object.empty_add(location=(0, 0, 0))
+  pivot = bpy.context.active_object
+  cam.parent = pivot
+  pivot.rotation_euler = (0, 0, 0)
+  pivot.keyframe_insert("rotation_euler", frame=1)
+  pivot.rotation_euler = (0, 0, math.radians(360))
+  pivot.keyframe_insert("rotation_euler", frame=49)
+  ```
+
+  ## Materials
+
+  ```python
+  mat = bpy.data.materials.new("Panel")
+  mat.use_nodes = True
+  bsdf = mat.node_tree.nodes["Principled BSDF"]
+  bsdf.inputs["Base Color"].default_value = (0.1, 0.4, 0.9, 1.0)
+  bsdf.inputs["Roughness"].default_value = 0.35
+  bsdf.inputs["Metallic"].default_value = 0.0
+  obj.data.materials.append(mat)
+  ```
+
+  For a glowing object set `bsdf.inputs["Emission Color"]` and
+  `bsdf.inputs["Emission Strength"]`. Socket names shift between Blender versions
+  — index by name and, if unsure, confirm with the `blender-live` trait's
+  `get_python_api_docs`, or print `[s.name for s in bsdf.inputs]` via
+  `blender_run_script`.
+
+  ## Choosing an engine
+
+  - `BLENDER_EEVEE` (default) — rasterized, fast, good for motion graphics, solid
+    shapes, and emission. Reflections and refraction are approximations.
+  - `CYCLES` — path traced. Use for glass, accurate reflections, caustics, or
+    photoreal lighting. Much slower; runs on the Apple GPU via Metal by default.
+  - `BLENDER_WORKBENCH` — flat preview shading. Use for quick blocking/previews.
+
+  ## Text
+
+  ```python
+  bpy.ops.object.text_add(location=(0, 0, 0))
+  txt = bpy.context.active_object
+  txt.data.body = "Hello"
+  txt.data.align_x = 'CENTER'
+  txt.data.extrude = 0.05        # gives the text depth
+  txt.data.bevel_depth = 0.01
+  ```
+
+  ## Practical defaults
+
+  - 24 fps; 48 frames = 2 seconds.
+  - Keep the subject near the origin and the camera 7–10 units out.
+  - Objects animating in from off-screen should start ~2x the visible extent away.
+  - Pass `transparent: true` for a matte. h264 cannot store alpha, so the mp4 is
+    only a preview — the RGBA PNG sequence is kept and its path returned as
+    `framesDir`. Composite from those frames, not the video.
+  - Set `keepFrames: true` when you expect to re-encode at different quality;
+    `blender_encode_frames` can then re-render the video without re-rendering 3D.
+
+  ## Cycles is slow to start
+
+  The first Cycles render on a machine compiles Metal GPU kernels, which can take
+  2–3 minutes before any frame appears — even for a tiny test. Subsequent renders
+  reuse the cache and are much faster. Default to `BLENDER_EEVEE` while iterating
+  and switch to Cycles only when you actually need path-traced glass, reflections,
+  or caustics.
+requires:
+  tools: [Bash, Read, Write]

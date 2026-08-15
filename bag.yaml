@@ -50,6 +50,17 @@ mcp-servers:
     # uvx process resident for the life of the MCP server for nothing.
     session-scoped: true
 
+
+# Native in-process tools namespace as 'blender' in code (src/tools.ts).
+# Declared so namespace derivations (auto-traits, doctor, MCP boot checks)
+# know this bag provides the namespace.
+tool-metadata:
+  - { toolName: blender_status, namespace: blender, access: read }
+  - { toolName: blender_render, namespace: blender, access: readwrite }
+  - { toolName: blender_run_script, namespace: blender, access: readwrite }
+  - { toolName: blender_scene_info, namespace: blender, access: read }
+  - { toolName: blender_encode_frames, namespace: blender, access: readwrite }
+
 tools:
   entry: tools.ts
 

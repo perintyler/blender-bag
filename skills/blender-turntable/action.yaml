@@ -1,0 +1,161 @@
+version: 1
+name: blender-turntable
+description: Render a 3D model as a sprite sheet of camera angles for scroll-driven web animation — orbit capture, numeric angle identification, axis discovery, texture replacement, and the never-upscale rule. Use when a model must become a turning or travelling object on a web page.
+prompt: |-
+  # Turntable & sprite sheets
+
+  Turning a 3D model into an object that moves on a web page. The output is a
+  **sprite sheet** — N camera angles stacked vertically — that CSS steps
+  through as the reader scrolls.
+
+  This is the cheap, robust alternative to shipping WebGL: no GPU variance, no
+  loading state, no fallback to design. It is also full of traps that are
+  invisible until a human looks at the page, so every step below ends in a
+  measurement rather than an opinion.
+
+  > "Every shot taken for the video should be different and unique — six shots
+  > of six using six different angles." — *A Storyteller's Bible*, p55
+
+  ## Never do these by eye
+
+  Four things caused repeated rework in real use. All four are one line of
+  measurement:
+
+  1. **Which axis is length?** Don't guess from the file.
+  2. **Which frame is true broadside?** "Looks side-on" is often 12° off.
+  3. **Which way does the bow/front point?** Wrong heading reads as broken.
+  4. **Is the turn monotonic?** A wrapped sequence spins 360°.
+
+  ## 1. Discover the axes before choosing a camera
+
+  Model conventions vary — Z-up, Y-up, length on X or Z. Measure the vertex
+  spans; the largest is length, the smallest is usually width/beam.
+
+  ```python
+  vs = ship.data.vertices
+  span = [max(v.co[i] for v in vs) - min(v.co[i] for v in vs) for i in range(3)]
+  L = max(range(3), key=lambda i: span[i])     # length axis
+  print("SPAN", [round(s) for s in span], "length axis =", "XYZ"[L])
+  ```
+
+  Height is the axis whose minimum sits at zero (a hull rests on the
+  waterline); check the distribution rather than assuming.
+
+  **`obj.dimensions` reports the unrotated bounding box** — it will not change
+  when you set `rotation_euler`, so it cannot be used to test a rotation. Bake
+  the transform into the mesh (`obj.data.transform(Matrix.Rotation(...))`) if
+  you need the geometry itself moved.
+
+  ## 2. Orbit capture
+
+  Place the camera on a circle around the subject at a fixed elevation, and
+  render one frame per azimuth via `blender_run_script`:
+
+  ```python
+  for i, az in enumerate(AZIMUTHS):
+      a = math.radians(az)
+      cam.location = (R*math.sin(a), -R*math.cos(a), HEIGHT)
+      cam.rotation_euler = (math.radians(82), 0, a)
+      scene.render.filepath = f"/tmp/turn/f{i}.png"
+      bpy.ops.render.render(write_still=True)
+  ```
+
+  Use `film_transparent = True` so the sheet composites over any background.
+
+  ## 3. Identify angles numerically
+
+  Render candidates, then measure the **content bounding box per frame**:
+
+  ```python
+  bb = Image.open(f).getbbox()
+  w, h = bb[2]-bb[0], bb[3]-bb[1]
+  print(f, "w", w, "h", h, "ratio", round(w/h, 2))
+  ```
+
+  - **Front-on / back-on** is dramatically narrow (one real case: ~300px).
+  - **Broadside** is the widest, with the **maximum width-to-height ratio**
+    (~1,600px, ratio 3.45 in the same model).
+  - Pick your range from these numbers, not from looking at thumbnails.
+
+  ## 4. A veer is a narrow arc
+
+  For an object turning away from the viewer, sample roughly **40–55° of
+  azimuth**, not 180°. A wide range passes through front-on and out the other
+  side — on the page that reads as a 360° spin.
+
+  **Assert monotonicity** before shipping: content width must change in one
+  direction across the sheet. A non-monotonic sequence *is* the spin bug, and
+  it is detectable without a human.
+
+  ## 5. Heading must match travel
+
+  A directional object points along its velocity vector. Measure filled alpha
+  in the outer 12% of each end — the pointed end has less mass:
+
+  ```python
+  fill = lambda a, x0, x1: (a[:, x0:x1, 3] > 40).sum() / (x1 - x0)
+  bow_left = fill(arr, 0, int(w*0.12)) < fill(arr, int(w*0.88), w)
+  ```
+
+  If the heading is wrong, mirror the sprite in CSS (`scaleX(-1)`). That also
+  mirrors any lettering, so **pre-mirror the texture in the render** and let
+  the two flips cancel.
+
+  Rotating the model 180° about the vertical axis is *not* the same operation —
+  it commonly flips the model upside down instead. Prefer the camera or the
+  CSS mirror.
+
+  ## 6. Replacing a texture inside a GLB
+
+  GLB files pack their images. Editing the file on disk does nothing; repoint
+  the image node instead:
+
+  ```python
+  new = bpy.data.images.load("/tmp/my-texture.png")
+  for mat in bpy.data.materials:
+      if not mat.use_nodes: continue
+      for n in mat.node_tree.nodes:
+          if n.type == 'TEX_IMAGE' and n.image and 'logo' in n.image.name.lower():
+              n.image = new
+  ```
+
+  Two gotchas that cost several rounds:
+
+  - **The UV window may show only part of the texture.** Text sized to the full
+    image can arrive truncated. Fit content to the visible sub-region and
+    verify by rendering, not by opening the texture.
+  - **UVs are often mirrored.** Check whether your text reads correctly in the
+    render; pre-flip the source if not.
+
+  ## 7. Never upscale
+
+  Render at or above the largest size the sprite will occupy on screen. CSS
+  cannot recover detail, and upscaling is the most visible quality failure.
+
+  Compression makes high resolution affordable: one real sheet was **~1.5MB as
+  PNG and ~330kb as WebP q82** at identical dimensions. Prefer fewer, larger,
+  better-compressed frames.
+
+  Pack frames on a **uniform canvas** (union of all bounding boxes) so CSS can
+  step between them without jitter:
+
+  ```
+  background-size: 100% {N*100}%;
+  background-position: 0 {i * 100/(N-1)}%;
+  ```
+
+  ## 8. Before you hand it to the page
+
+  - Axes measured, not assumed.
+  - Entry frame is true broadside (max width/height ratio).
+  - Frame widths change monotonically; no wrap.
+  - Heading matches direction of travel (alpha-mass check).
+  - Native frame width ≥ maximum rendered width.
+  - Sheet is WebP; frames share one canvas size.
+  - Rendered once at final size and *looked at* — the last check is still a
+    human one, but it should be confirming, not discovering.
+
+  For how the sprite then behaves on the page — entry, hold, turn, departure,
+  perspective, and the physical-plausibility rules — see
+  `digital-storytelling-v2` → `craft/scrolly-telling.md` §9 "The hero-object
+  voyage".
